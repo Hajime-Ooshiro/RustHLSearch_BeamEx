@@ -101,11 +101,18 @@ fn ending_window(len: usize, max_len: usize) -> std::ops::Range<usize> {
     len - selected_len..len
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+fn positioned_window(len: usize, max_len: usize, position: f64) -> std::ops::Range<usize> {
+    let selected_len = len.min(max_len);
+    let start = ((len - selected_len) as f64 * position).floor() as usize;
+    start..start + selected_len
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum BeamRange {
     Center(usize),
     Start(usize),
     End(usize),
+    At { position: f64, count: usize },
 }
 
 impl BeamRange {
@@ -114,6 +121,7 @@ impl BeamRange {
             Self::Center(max_len) => centered_window(len, max_len),
             Self::Start(max_len) => starting_window(len, max_len),
             Self::End(max_len) => ending_window(len, max_len),
+            Self::At { position, count } => positioned_window(len, count, position),
         }
     }
 }
@@ -124,6 +132,7 @@ impl fmt::Display for BeamRange {
             Self::Center(count) => write!(formatter, "{count}"),
             Self::Start(count) => write!(formatter, "start:{count}"),
             Self::End(count) => write!(formatter, "end:{count}"),
+            Self::At { position, count } => write!(formatter, "at:{position}:{count}"),
         }
     }
 }
@@ -132,23 +141,33 @@ impl FromStr for BeamRange {
     type Err = String;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if let Some(value) = value.strip_prefix("at:") {
+            let (position, count) = value
+                .split_once(':')
+                .ok_or_else(|| "beam range position must use the format at:X:COUNT".to_string())?;
+            let position = position.parse::<f64>().map_err(|_| {
+                format!("beam range position must be a number between 0 and 1: '{position}'")
+            })?;
+            if !position.is_finite() || !(0.0..=1.0).contains(&position) {
+                return Err(format!(
+                    "beam range position must be between 0 and 1: '{position}'"
+                ));
+            }
+            let count = parse_beam_range_count(count)?;
+            return Ok(Self::At { position, count });
+        }
+
         let (position, count) = match value.split_once(':') {
             Some(("start", count)) => ("start", count),
             Some(("end", count)) => ("end", count),
             Some((position, _)) => {
                 return Err(format!(
-                    "unknown beam range position '{position}'; use a positive count, start:COUNT, or end:COUNT"
+                    "unknown beam range position '{position}'; use a positive count, start:COUNT, end:COUNT, or at:X:COUNT"
                 ));
             }
             None => ("center", value),
         };
-        let count = count
-            .parse::<usize>()
-            .map_err(|_| format!("beam range count must be a positive integer: '{count}'"))?;
-
-        if count == 0 {
-            return Err("beam range count must be at least 1".to_string());
-        }
+        let count = parse_beam_range_count(count)?;
 
         Ok(match position {
             "start" => Self::Start(count),
@@ -156,6 +175,16 @@ impl FromStr for BeamRange {
             _ => Self::Center(count),
         })
     }
+}
+
+fn parse_beam_range_count(value: &str) -> Result<usize, String> {
+    let count = value
+        .parse::<usize>()
+        .map_err(|_| format!("beam range count must be a positive integer: '{value}'"))?;
+    if count == 0 {
+        return Err("beam range count must be at least 1".to_string());
+    }
+    Ok(count)
 }
 
 pub struct State {
@@ -188,6 +217,7 @@ impl State {
     pub fn search_beam(&mut self, depth: usize, beam_range: BeamRange) {
         self.beam_range = match beam_range {
             BeamRange::Center(range) | BeamRange::Start(range) | BeamRange::End(range) => range,
+            BeamRange::At { count, .. } => count,
         };
         let pb = progress_bar();
         let mut beam = vec![BeamState {
@@ -539,11 +569,49 @@ mod tests {
     }
 
     #[test]
-    fn beam_range_parses_center_start_and_end_positions() {
+    fn positioned_beam_range_uses_the_requested_relative_start() {
+        assert_eq!(
+            BeamRange::At {
+                position: 0.25,
+                count: 500,
+            }
+            .window(1_000),
+            125..625
+        );
+        assert_eq!(
+            BeamRange::At {
+                position: 0.5,
+                count: 500,
+            }
+            .window(1_001),
+            250..750
+        );
+        assert_eq!(
+            BeamRange::At {
+                position: 1.0,
+                count: 500,
+            }
+            .window(1_000),
+            500..1_000
+        );
+    }
+
+    #[test]
+    fn beam_range_parses_center_start_end_and_relative_positions() {
         assert_eq!("500".parse(), Ok(BeamRange::Center(500)));
         assert_eq!("start:500".parse(), Ok(BeamRange::Start(500)));
         assert_eq!("end:500".parse(), Ok(BeamRange::End(500)));
+        assert_eq!(
+            "at:0.25:500".parse(),
+            Ok(BeamRange::At {
+                position: 0.25,
+                count: 500,
+            })
+        );
         assert!("end:0".parse::<BeamRange>().is_err());
+        assert!("at:-0.1:500".parse::<BeamRange>().is_err());
+        assert!("at:1.1:500".parse::<BeamRange>().is_err());
+        assert!("at:0.5:0".parse::<BeamRange>().is_err());
         assert!("middle:500".parse::<BeamRange>().is_err());
     }
 
