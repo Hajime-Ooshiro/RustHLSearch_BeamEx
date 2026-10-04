@@ -2,6 +2,8 @@ use crate::bitmask::BitMask;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::debug;
 use rayon::prelude::*;
+use std::fmt;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -90,6 +92,63 @@ fn centered_window(len: usize, max_len: usize) -> std::ops::Range<usize> {
     start..start + selected_len
 }
 
+fn ending_window(len: usize, max_len: usize) -> std::ops::Range<usize> {
+    let selected_len = len.min(max_len);
+    len - selected_len..len
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum BeamRange {
+    Center(usize),
+    End(usize),
+}
+
+impl BeamRange {
+    pub fn window(self, len: usize) -> std::ops::Range<usize> {
+        match self {
+            Self::Center(max_len) => centered_window(len, max_len),
+            Self::End(max_len) => ending_window(len, max_len),
+        }
+    }
+}
+
+impl fmt::Display for BeamRange {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Center(count) => write!(formatter, "{count}"),
+            Self::End(count) => write!(formatter, "end:{count}"),
+        }
+    }
+}
+
+impl FromStr for BeamRange {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let (position, count) = match value.split_once(':') {
+            Some(("end", count)) => ("end", count),
+            Some((position, _)) => {
+                return Err(format!(
+                    "unknown beam range position '{position}'; use a positive count or end:COUNT"
+                ));
+            }
+            None => ("center", value),
+        };
+        let count = count
+            .parse::<usize>()
+            .map_err(|_| format!("beam range count must be a positive integer: '{count}'"))?;
+
+        if count == 0 {
+            return Err("beam range count must be at least 1".to_string());
+        }
+
+        Ok(match position {
+            "end" => Self::End(count),
+            _ => Self::Center(count),
+        })
+    }
+}
+
 pub struct State {
     pub primes: Vec<usize>,
     pub max_depth: usize,
@@ -117,9 +176,10 @@ impl State {
         }
     }
 
-    pub fn search_beam(&mut self, depth: usize, beam_range: usize) {
-        let range = beam_range.max(1);
-        self.beam_range = range;
+    pub fn search_beam(&mut self, depth: usize, beam_range: BeamRange) {
+        self.beam_range = match beam_range {
+            BeamRange::Center(range) | BeamRange::End(range) => range,
+        };
         let pb = progress_bar();
         let mut beam = vec![BeamState {
             key: Vec::new(),
@@ -164,7 +224,7 @@ impl State {
                 break;
             }
 
-            let window = centered_window(next_beam.len(), range);
+            let window = beam_range.window(next_beam.len());
             beam = next_beam.drain(window).collect();
         }
 
@@ -173,7 +233,7 @@ impl State {
         pb.finish_with_message("探索完了");
     }
 
-    pub fn beam_search(&mut self, depth: usize, beam_range: usize) {
+    pub fn beam_search(&mut self, depth: usize, beam_range: BeamRange) {
         self.search_beam(depth, beam_range);
     }
 
@@ -364,7 +424,9 @@ fn progress_bar() -> ProgressBar {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_shift_table, centered_window, SearchResult, State, DEFAULT_BEAM_RANGE};
+    use super::{
+        build_shift_table, centered_window, BeamRange, SearchResult, State, DEFAULT_BEAM_RANGE,
+    };
 
     #[test]
     fn build_shift_table_creates_expected_complement_masks() {
@@ -422,7 +484,7 @@ mod tests {
         let mut beam = State::new(primes, cols, table);
         beam.max_depth = 2;
 
-        beam.search_beam(2, 2);
+        beam.search_beam(2, BeamRange::Center(2));
 
         assert_eq!(beam.max_count, 2);
         assert!(!beam.shifts.is_empty());
@@ -441,7 +503,7 @@ mod tests {
         let parallel = State::new(primes.clone(), cols, table.clone()).search_parallel(2);
 
         let mut beam = State::new(primes, cols, table);
-        beam.search_beam(2, 6);
+        beam.search_beam(2, BeamRange::Center(6));
 
         assert_eq!(parallel.max_count, sequential.max_count);
         assert_eq!(beam.max_count, sequential.max_count);
@@ -453,6 +515,20 @@ mod tests {
         assert_eq!(centered_window(1_000, DEFAULT_BEAM_RANGE), 250..750);
         assert_eq!(centered_window(499, DEFAULT_BEAM_RANGE), 0..499);
         assert_eq!(centered_window(501, DEFAULT_BEAM_RANGE), 0..500);
+    }
+
+    #[test]
+    fn end_beam_range_keeps_candidates_from_the_end() {
+        assert_eq!(BeamRange::End(500).window(1_000), 500..1_000);
+        assert_eq!(BeamRange::End(500).window(499), 0..499);
+    }
+
+    #[test]
+    fn beam_range_parses_center_and_end_positions() {
+        assert_eq!("500".parse(), Ok(BeamRange::Center(500)));
+        assert_eq!("end:500".parse(), Ok(BeamRange::End(500)));
+        assert!("end:0".parse::<BeamRange>().is_err());
+        assert!("start:500".parse::<BeamRange>().is_err());
     }
 
     #[test]

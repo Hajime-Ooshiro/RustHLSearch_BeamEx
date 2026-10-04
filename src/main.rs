@@ -7,7 +7,7 @@ use clap::Parser;
 use log::{info, LevelFilter};
 use output::dated_output_path;
 use primes::generate_primes;
-use search::{build_shift_table, SearchMode, State, DEFAULT_BEAM_RANGE};
+use search::{build_shift_table, BeamRange, SearchMode, State, DEFAULT_BEAM_RANGE};
 use simple_logger::SimpleLogger;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -31,10 +31,11 @@ pub struct Cli {
 
     #[arg(
         long,
-        default_value_t = DEFAULT_BEAM_RANGE,
-        help = "次世代候補の中央から保持する最大数 (beam モードで使用)"
+        default_value_t = BeamRange::Center(DEFAULT_BEAM_RANGE),
+        value_name = "COUNT|end:COUNT",
+        help = "中央からCOUNT件、または末尾からend:COUNT件を保持 (beam モードで使用)"
     )]
-    pub beam_range: usize,
+    pub beam_range: BeamRange,
 
     #[arg(long, default_value_t = 249, help = "打ち切り判定用 max-depth")]
     pub max_depth: usize,
@@ -53,9 +54,6 @@ impl Cli {
         }
         if self.cols == 0 {
             return Err("cols must be at least 1".to_string());
-        }
-        if self.beam_range == 0 {
-            return Err("beam_range must be at least 1".to_string());
         }
         if self.max_depth == 0 {
             return Err("max_depth must be at least 1".to_string());
@@ -150,7 +148,7 @@ mod tests {
         Cli {
             depth: 1,
             mode: SearchMode::Sequential,
-            beam_range: DEFAULT_BEAM_RANGE,
+            beam_range: BeamRange::Center(DEFAULT_BEAM_RANGE),
             max_depth: 249,
             cols: 4,
             output: PathBuf::from("."),
@@ -180,10 +178,6 @@ mod tests {
 
     #[test]
     fn cli_validation_rejects_unexpected_zero_or_empty_inputs() {
-        let mut cli = test_cli();
-        cli.beam_range = 0;
-        assert!(cli.validate(3).is_err());
-
         let mut beam_cli = test_cli();
         beam_cli.max_depth = 0;
         assert!(beam_cli.validate(3).is_err());
@@ -191,7 +185,7 @@ mod tests {
         let zero_depth_cli = Cli {
             depth: 0,
             mode: SearchMode::Parallel,
-            beam_range: 1,
+            beam_range: BeamRange::Center(1),
             max_depth: 2,
             cols: 1,
             output: PathBuf::from("."),
@@ -201,7 +195,7 @@ mod tests {
         let depth_exceeds_max_depth = Cli {
             depth: 5,
             mode: SearchMode::Beam,
-            beam_range: 1,
+            beam_range: BeamRange::Center(1),
             max_depth: 3,
             cols: 1,
             output: PathBuf::from("."),
