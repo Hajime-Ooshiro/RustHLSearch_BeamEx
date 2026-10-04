@@ -93,6 +93,12 @@ cargo run --release -- --mode beam --beam-range 500 --depth 8
 cargo run --release -- --mode beam --beam-range end:500 --depth 8
 ```
 
+ビームサーチで次世代候補の先頭500件を保持する:
+
+```bash
+cargo run --release -- --mode beam --beam-range start:500 --depth 8
+```
+
 素数の個数や出力先を指定して実行:
 
 ```bash
@@ -118,7 +124,7 @@ cargo run --release -- --depth 10 -o output
 3. **検索モード**:
    - `sequential`: 非再帰 DFS で決定論的に探索。
   - `parallel`: 第1素数の候補を Rayon で並列化し、最大 popcount を集計。
-   - `beam`: 各深さで生成順を維持し、次世代候補の中央から `--beam-range` 件（既定値500）、または末尾から `--beam-range end:COUNT` 件を保持して探索を続行。
+   - `beam`: 各深さで生成順を維持し、次世代候補の中央から `--beam-range COUNT` 件（既定値500）、先頭から `--beam-range start:COUNT` 件、または末尾から `--beam-range end:COUNT` 件を保持して探索を続行。
 4. **葉ノード（深さ `depth`）の判定**:
    - popcount がこれまでの最大値を超えた場合、`max_count` を更新します。
   - 最大 popcount に到達したシフトパスを記録します。
@@ -127,7 +133,7 @@ cargo run --release -- --depth 10 -o output
 
 - `--mode sequential`: 単一スレッドで決定論的に非再帰 DFS を実行します。
 - `--mode parallel`（デフォルト）: 第1素数のシフト候補を逆順（降順）で Rayon の並列イテレータに分配し、複数スレッドで並列 DFS します。いずれかのスレッドが解を見つけた時点で全スレッドを停止します。
-- `--mode beam`: 各階層で生成順を維持し、次世代候補の中央から `--beam-range COUNT` 件、または末尾から `--beam-range end:COUNT` 件を残します。探索空間を削減して高速化を狙います。
+- `--mode beam`: 各階層で生成順を維持し、次世代候補の中央から `--beam-range COUNT` 件、先頭から `--beam-range start:COUNT` 件、または末尾から `--beam-range end:COUNT` 件を残します。探索空間を削減して高速化を狙います。
 
 並列モードではスレッドの実行順序により、記録される解のシフト列が逐次モードと異なる場合があります。
 
@@ -137,7 +143,7 @@ cargo run --release -- --depth 10 -o output
 | --- | --- | --- | --- |
 | `--depth` | `-d` | `8` | 探索する階層数（使用する素数の個数） |
 | `--mode` | `-m` | `beam` | 探索モード（`sequential` / `parallel` / `beam`） |
-| `--beam-range` |  | `500` | `beam` モードで保持する候補の最大数。`COUNT` は中央、`end:COUNT` は末尾から保持 |
+| `--beam-range` |  | `500` | `beam` モードで保持する候補の最大数。`COUNT` は中央、`start:COUNT` は先頭、`end:COUNT` は末尾から保持 |
 | `--cols` | | `3159` | ビット列の長さ |
 | `--output` | `-o` | `.` | 出力ディレクトリ |
 | `--max-depth` | | `249` | 出力設定に記録される予約パラメータ |

@@ -32,8 +32,8 @@ pub struct Cli {
     #[arg(
         long,
         default_value_t = BeamRange::Center(DEFAULT_BEAM_RANGE),
-        value_name = "COUNT|end:COUNT",
-        help = "中央からCOUNT件、または末尾からend:COUNT件を保持 (beam モードで使用)"
+        value_name = "COUNT|start:COUNT|end:COUNT",
+        help = "中央・先頭・末尾から指定件数を保持 (beam モードで使用)"
     )]
     pub beam_range: BeamRange,
 
