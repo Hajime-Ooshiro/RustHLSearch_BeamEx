@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 /// 指定したディレクトリに、深さと日付を含む出力ファイル名を作る。
 pub fn dated_output_path(directory: &Path, prefix: &str, depth: usize, extension: &str) -> PathBuf {
-    let date = Local::now().format("%Y%m%d").to_string();
+    let date = Local::now().format("%Y%m%d_%H%M%S").to_string();
     directory.join(format!("{prefix}_depth{depth}_{date}.{extension}"))
 }
 
